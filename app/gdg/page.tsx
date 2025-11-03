@@ -19,7 +19,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 import gsap from "gsap";
-import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
 // ====================== SIDEBAR COMPONENT ======================
@@ -165,39 +164,39 @@ export default function ResortDashboard() {
   const [selectedMetric, setSelectedMetric] = useState<number | null>(null);
 
   const sectionsRef = useRef<(HTMLDivElement | null)[]>([]);
+  const statsRef = useRef<(HTMLDivElement | null)[]>([]);
   const loadingRef = useRef<HTMLDivElement>(null);
   const logoRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
 
   const router = useRouter();
 
-  // ✅ Supabase Authentication Check (fixed position)
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) router.push("/login");
-    };
-    checkUser();
-  }, [router]);
-
   // GSAP Loading Animation
   useEffect(() => {
     if (!loadingRef.current || !logoRef.current || !textRef.current) return;
+
     const tl = gsap.timeline({
-      onComplete: () => setTimeout(() => setShowLoading(false), 500),
+      onComplete: () => {
+        setTimeout(() => setShowLoading(false), 500);
+      },
     });
+
     tl.from(logoRef.current, {
       duration: 1,
       scale: 0.5,
       opacity: 0,
       ease: "back.out(1.7)",
     })
-      .from(textRef.current, {
-        duration: 0.8,
-        y: 20,
-        opacity: 0,
-        ease: "power2.out",
-      })
+      .from(
+        textRef.current,
+        {
+          duration: 0.8,
+          y: 20,
+          opacity: 0,
+          ease: "power2.out",
+        },
+        "-=0.3"
+      )
       .to(loadingRef.current, {
         duration: 0.8,
         opacity: 0,
@@ -212,7 +211,6 @@ export default function ResortDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // ====================== Dashboard Data ======================
   const dashboardSections = [
     {
       title: "Administrative Controls",
@@ -282,7 +280,6 @@ export default function ResortDashboard() {
       hour12: true,
     });
 
-  // ====================== JSX Render ======================
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-gray-100 relative overflow-hidden">
       {/* Loading Screen */}
