@@ -184,7 +184,10 @@ export default function ResortDashboard() {
   useEffect(() => {
     if (!loadingRef.current || !logoRef.current || !textRef.current) return;
     const tl = gsap.timeline({
-      onComplete: () => setTimeout(() => setShowLoading(false), 500),
+     onComplete: () => {
+  setTimeout(() => setShowLoading(false), 500);
+},
+
     });
     tl.from(logoRef.current, {
       duration: 1,
