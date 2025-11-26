@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ResortSidebar, MenuButton } from "@/components/ui/ResortSidebar"
 
 const dishes = [
   "Idli",
@@ -27,6 +28,7 @@ const dishes = [
 ]
 
 export default function CookPage() {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [reports, setReports] = useState<any[]>([])
   const [current, setCurrent] = useState({
     dish: "",
@@ -71,150 +73,165 @@ export default function CookPage() {
   const totalWastage = reports.reduce((sum, r) => sum + Number(r.wastage || 0), 0)
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8 space-y-8">
-      <h1 className="text-3xl font-bold text-center">👨‍🍳 Kitchen Operations Dashboard</h1>
+    <div className="min-h-screen bg-gray-50">
+      {/* Menu Button */}
+      {!sidebarOpen && <MenuButton onClick={() => setSidebarOpen(true)} />}
 
-      {/* Food Cost Estimation */}
-      <Card>
-        <CardHeader>
-          <CardTitle>🍲 Food Cost Estimation</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid md:grid-cols-4 gap-4">
-            <div>
-              <Label>Dish</Label>
-              <Input
-                list="dishList"
-                value={current.dish}
-                onChange={(e) => setCurrent({ ...current, dish: e.target.value })}
-              />
-              <datalist id="dishList">
-                {dishes.map((d) => (
-                  <option key={d} value={d} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <Label>Prepared Qty</Label>
-              <Input
-                type="number"
-                value={current.preparedQty}
-                onChange={(e) => setCurrent({ ...current, preparedQty: Number(e.target.value) })}
-              />
-            </div>
-            <div>
-              <Label>Sold Qty</Label>
-              <Input
-                type="number"
-                value={current.soldQty}
-                onChange={(e) => setCurrent({ ...current, soldQty: Number(e.target.value) })}
-              />
-            </div>
-            <div>
-              <Label>Cost Estimate (₹)</Label>
-              <Input
-                type="number"
-                value={current.costEstimate}
-                onChange={(e) => setCurrent({ ...current, costEstimate: Number(e.target.value) })}
-              />
-            </div>
-          </div>
-          <Button onClick={handleAddReport}>Add to Report</Button>
+      {/* Sidebar */}
+      <ResortSidebar 
+        isOpen={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)} 
+      />
 
-          <Separator className="my-4" />
+      {/* Main Content */}
+      <div className="p-4 sm:p-8 space-y-8">
+        {/* Add left margin on desktop to account for menu button */}
+        <div className="ml-0 sm:ml-20">
+          <h1 className="text-3xl font-bold text-center">👨‍🍳 Kitchen Operations Dashboard</h1>
 
-          <ScrollArea className="h-48 border rounded-md p-4">
-            {reports.length === 0 ? (
-              <p className="text-gray-500 text-center">No reports yet.</p>
-            ) : (
-              reports.map((r, i) => (
-                <div key={i} className="flex justify-between py-1 border-b">
-                  <span>{r.dish}</span>
-                  <span>
-                    Prep: {r.preparedQty} | Sold: {r.soldQty} | Waste: {r.wastage} | ₹{r.costEstimate}
-                  </span>
+          {/* Food Cost Estimation */}
+          <Card className="mt-8">
+            <CardHeader>
+              <CardTitle>🍲 Food Cost Estimation</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-4 gap-4">
+                <div>
+                  <Label>Dish</Label>
+                  <Input
+                    list="dishList"
+                    value={current.dish}
+                    onChange={(e) => setCurrent({ ...current, dish: e.target.value })}
+                  />
+                  <datalist id="dishList">
+                    {dishes.map((d) => (
+                      <option key={d} value={d} />
+                    ))}
+                  </datalist>
                 </div>
-              ))
-            )}
-          </ScrollArea>
-
-          <div className="text-sm text-gray-700 mt-2">
-            <strong>Total Cost:</strong> ₹{totalCost} | <strong>Total Wastage:</strong> {totalWastage} plates
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Inventory Requests */}
-      <Card>
-        <CardHeader>
-          <CardTitle>📦 Request Items from Inventory</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid md:grid-cols-3 gap-4">
-            <div>
-              <Label>Item Name</Label>
-              <Input
-                value={inventoryItem}
-                onChange={(e) => setInventoryItem(e.target.value)}
-                placeholder="e.g., Rice, Milk, Oil"
-              />
-            </div>
-            <div>
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                value={inventoryQty}
-                onChange={(e) => setInventoryQty(Number(e.target.value))}
-                placeholder="e.g., 10 kg"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button onClick={handleInventoryRequest}>Send Request</Button>
-            </div>
-          </div>
-
-          <ScrollArea className="h-40 border rounded-md p-4">
-            {inventoryRequests.length === 0 ? (
-              <p className="text-gray-500 text-center">No inventory requests yet.</p>
-            ) : (
-              inventoryRequests.map((req, i) => (
-                <div key={i} className="flex justify-between border-b py-1">
-                  <span>
-                    {req.item} — {req.quantity}
-                  </span>
-                  <span
-                    className={`font-semibold ${
-                      req.status === "Pending"
-                        ? "text-yellow-500"
-                        : req.status === "Approved"
-                        ? "text-blue-500"
-                        : "text-green-500"
-                    }`}
-                  >
-                    {req.status}
-                  </span>
+                <div>
+                  <Label>Prepared Qty</Label>
+                  <Input
+                    type="number"
+                    value={current.preparedQty}
+                    onChange={(e) => setCurrent({ ...current, preparedQty: Number(e.target.value) })}
+                  />
                 </div>
-              ))
-            )}
-          </ScrollArea>
-        </CardContent>
-      </Card>
+                <div>
+                  <Label>Sold Qty</Label>
+                  <Input
+                    type="number"
+                    value={current.soldQty}
+                    onChange={(e) => setCurrent({ ...current, soldQty: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <Label>Cost Estimate (₹)</Label>
+                  <Input
+                    type="number"
+                    value={current.costEstimate}
+                    onChange={(e) => setCurrent({ ...current, costEstimate: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <Button onClick={handleAddReport}>Add to Report</Button>
 
-      {/* Night Report */}
-      <Card>
-        <CardHeader>
-          <CardTitle>🌙 Night Report & Communication</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Label>Message to Super Admin</Label>
-          <Textarea
-            placeholder="Summarize today's kitchen performance..."
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-          />
-          <Button onClick={handleSendReport}>Send Report</Button>
-        </CardContent>
-      </Card>
+              <Separator className="my-4" />
+
+              <ScrollArea className="h-48 border rounded-md p-4">
+                {reports.length === 0 ? (
+                  <p className="text-gray-500 text-center">No reports yet.</p>
+                ) : (
+                  reports.map((r, i) => (
+                    <div key={i} className="flex justify-between py-1 border-b">
+                      <span>{r.dish}</span>
+                      <span>
+                        Prep: {r.preparedQty} | Sold: {r.soldQty} | Waste: {r.wastage} | ₹{r.costEstimate}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </ScrollArea>
+
+              <div className="text-sm text-gray-700 mt-2">
+                <strong>Total Cost:</strong> ₹{totalCost} | <strong>Total Wastage:</strong> {totalWastage} plates
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Inventory Requests */}
+          <Card className="mt-8">
+            <CardHeader>
+              <CardTitle>📦 Request Items from Inventory</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <Label>Item Name</Label>
+                  <Input
+                    value={inventoryItem}
+                    onChange={(e) => setInventoryItem(e.target.value)}
+                    placeholder="e.g., Rice, Milk, Oil"
+                  />
+                </div>
+                <div>
+                  <Label>Quantity</Label>
+                  <Input
+                    type="number"
+                    value={inventoryQty}
+                    onChange={(e) => setInventoryQty(Number(e.target.value))}
+                    placeholder="e.g., 10 kg"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={handleInventoryRequest}>Send Request</Button>
+                </div>
+              </div>
+
+              <ScrollArea className="h-40 border rounded-md p-4">
+                {inventoryRequests.length === 0 ? (
+                  <p className="text-gray-500 text-center">No inventory requests yet.</p>
+                ) : (
+                  inventoryRequests.map((req, i) => (
+                    <div key={i} className="flex justify-between border-b py-1">
+                      <span>
+                        {req.item} — {req.quantity}
+                      </span>
+                      <span
+                        className={`font-semibold ${
+                          req.status === "Pending"
+                            ? "text-yellow-500"
+                            : req.status === "Approved"
+                            ? "text-blue-500"
+                            : "text-green-500"
+                        }`}
+                      >
+                        {req.status}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          {/* Night Report */}
+          <Card className="mt-8">
+            <CardHeader>
+              <CardTitle>🌙 Night Report & Communication</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Label>Message to Super Admin</Label>
+              <Textarea
+                placeholder="Summarize today's kitchen performance..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+              <Button onClick={handleSendReport}>Send Report</Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   )
 }

@@ -3,175 +3,36 @@
 import { useEffect, useState, useRef } from "react";
 import {
   Hotel,
-  UtensilsCrossed,
-  ChefHat,
-  FileCheck,
   DollarSign,
-  ChevronDown,
   Calendar,
   Clock,
-  Menu,
-  X,
   TrendingUp,
   Users,
   Sparkles,
   Activity,
   ArrowRight,
+  ChefHat,
+  FileCheck,
 } from "lucide-react";
 import gsap from "gsap";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import { ResortSidebar, MenuButton } from "@/components/ui/ResortSidebar";
 
-// ====================== SIDEBAR COMPONENT ======================
-function Sidebar({
-  isOpen,
-  onClose,
-  sections,
-  expandedSection,
-  setExpandedSection,
-  sectionsRef,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  sections: any[];
-  expandedSection: number | null;
-  setExpandedSection: (index: number | null) => void;
-  sectionsRef: React.MutableRefObject<(HTMLDivElement | null)[]>;
-}) {
-  const router = useRouter();
-
-  return (
-    <>
-      {/* Sidebar */}
-      <div
-        className={`fixed top-0 left-0 h-full w-full sm:w-96 z-50 transform transition-all duration-500 ease-in-out ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-        style={{
-          background: "rgba(0, 0, 0, 0.95)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          borderRight: "2px solid rgba(255, 255, 255, 0.1)",
-          boxShadow: "10px 0 40px rgba(0, 0, 0, 0.5)",
-        }}
-      >
-        <div className="p-6 border-b border-white/10 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-4 h-4 text-white animate-pulse" />
-            <h2 className="text-sm tracking-widest text-white font-light">
-              MODULES
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 hover:rotate-90 transition-all duration-300 rounded-lg group"
-          >
-            <X
-              className="w-5 h-5 text-white group-hover:scale-110 transition-transform"
-              strokeWidth={1.5}
-            />
-          </button>
-        </div>
-
-        <div className="overflow-y-auto h-[calc(100vh-73px)]">
-          {sections.map((section, index) => {
-            const Icon = section.icon;
-            const isExpanded = expandedSection === index;
-
-            return (
-              <div key={index} className="border-b border-white/10">
-                <button
-                  onClick={() =>
-                    setExpandedSection(isExpanded ? null : index)
-                  }
-                  className="w-full flex items-center justify-between p-5 text-left hover:bg-white/10 transition-all duration-300 group"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 rounded-lg bg-white/10 group-hover:bg-white/20 group-hover:scale-110 transition-all duration-300">
-                      <Icon className="w-4 h-4 text-white" strokeWidth={1.5} />
-                    </div>
-                    <span className="text-sm font-light text-white">
-                      {section.title}
-                    </span>
-                  </div>
-                  <ChevronDown
-                    className={`w-4 h-4 text-white transition-transform duration-300 ${
-                      isExpanded ? "rotate-180" : ""
-                    }`}
-                    strokeWidth={1.5}
-                  />
-                </button>
-
-                <div
-                  ref={(el) => {
-                    sectionsRef.current[index] = el;
-                  }}
-                  className="overflow-hidden transition-all duration-300"
-                  style={{
-                    height: isExpanded
-                      ? `${section.options.length * 48}px`
-                      : "0px",
-                    opacity: isExpanded ? 1 : 0,
-                    background: "rgba(255, 255, 255, 0.05)",
-                  }}
-                >
-                  {section.options.map(
-                    (option: any, optionIndex: number) => (
-                      <button
-                        key={optionIndex}
-                        className="w-full text-left py-3 px-5 pl-14 hover:bg-white/10 hover:pl-16 transition-all duration-200 group relative overflow-hidden"
-                        onClick={() => {
-                          router.push(option.link);
-                          onClose();
-                        }}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                        <div className="flex items-center justify-between relative z-10">
-                          <span className="text-xs font-light text-gray-300 group-hover:text-white transition-colors">
-                            {option.name}
-                          </span>
-                          <span className="text-xs text-gray-500 font-mono group-hover:text-gray-300 transition-colors">
-                            {option.shortcut}
-                          </span>
-                        </div>
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-all duration-500"
-          onClick={onClose}
-        />
-      )}
-    </>
-  );
-}
-
-// ====================== MAIN DASHBOARD ======================
 export default function ResortDashboard() {
   const [showLoading, setShowLoading] = useState(true);
-  const [expandedSection, setExpandedSection] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hoveredUpdate, setHoveredUpdate] = useState<number | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<number | null>(null);
 
-  const sectionsRef = useRef<(HTMLDivElement | null)[]>([]);
   const loadingRef = useRef<HTMLDivElement>(null);
   const logoRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
 
   const router = useRouter();
 
-  // ✅ Supabase Authentication Check (fixed position)
+  // ✅ Supabase Authentication Check
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -184,10 +45,9 @@ export default function ResortDashboard() {
   useEffect(() => {
     if (!loadingRef.current || !logoRef.current || !textRef.current) return;
     const tl = gsap.timeline({
-     onComplete: () => {
-  setTimeout(() => setShowLoading(false), 500);
-},
-
+      onComplete: () => {
+        setTimeout(() => setShowLoading(false), 500);
+      },
     });
     tl.from(logoRef.current, {
       duration: 1,
@@ -216,43 +76,6 @@ export default function ResortDashboard() {
   }, []);
 
   // ====================== Dashboard Data ======================
-  const dashboardSections = [
-    {
-      title: "Administrative Controls",
-      icon: FileCheck,
-      options: [
-        { name: "Admin Panel", link: "/admin", shortcut: "⌘A" },
-        { name: "HR Management", link: "/hr", shortcut: "⌘H" },
-      ],
-    },
-    {
-      title: "Guest Management",
-      icon: Hotel,
-      options: [
-        { name: "Bookings", link: "/bookings", shortcut: "⌘B" },
-        { name: "Checkout", link: "/checkout", shortcut: "⌘C" },
-        { name: "Payment Management", link: "/payment", shortcut: "⌘P" },
-      ],
-    },
-    {
-      title: "Food & Kitchen",
-      icon: ChefHat,
-      options: [
-        { name: "Cook Dashboard", link: "/cook", shortcut: "⌘K" },
-        { name: "Kitchen Inventory", link: "/kitcheninv", shortcut: "⌘I" },
-        { name: "KOT Management", link: "/kot", shortcut: "⌘T" },
-        { name: "Restaurant Events", link: "/events", shortcut: "⌘E" },
-      ],
-    },
-    {
-      title: "Inventory & Supplies",
-      icon: UtensilsCrossed,
-      options: [
-        { name: "Resort Inventory", link: "/inventory", shortcut: "⌘R" },
-      ],
-    },
-  ];
-
   const quickStats = [
     { label: "Occupancy", value: "85%", change: "+5%", icon: Hotel, color: "from-blue-500 to-cyan-500" },
     { label: "Revenue Today", value: "₹45.2K", change: "+12%", icon: TrendingUp, color: "from-green-500 to-emerald-500" },
@@ -311,23 +134,12 @@ export default function ResortDashboard() {
       )}
 
       {/* Menu Button */}
-      {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="fixed top-4 sm:top-8 left-4 sm:left-8 p-4 bg-black text-white hover:bg-red-600 hover:scale-110 transition-all duration-300 z-[100] shadow-2xl rounded-xl border-2 border-white"
-        >
-          <Menu className="w-6 h-6" strokeWidth={2} />
-        </button>
-      )}
+      {!sidebarOpen && <MenuButton onClick={() => setSidebarOpen(true)} />}
 
       {/* Sidebar */}
-      <Sidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        sections={dashboardSections}
-        expandedSection={expandedSection}
-        setExpandedSection={setExpandedSection}
-        sectionsRef={sectionsRef}
+      <ResortSidebar 
+        isOpen={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)} 
       />
 
       {/* Main Content */}
@@ -412,7 +224,7 @@ export default function ResortDashboard() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs tracking-widest text-gray-400">
-                TODAY'S ACTIVITY LOG
+                TODAYS ACTIVITY LOG
               </h2>
               <button className="text-xs text-black hover:underline flex items-center space-x-1 group">
                 <span>View All</span>
