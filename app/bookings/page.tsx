@@ -2,37 +2,58 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Calendar } from "@/components/ui/calendar"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useDropzone } from "react-dropzone"
-import Image from "next/image"
-import { toast } from "sonner"
+import { motion, AnimatePresence } from "framer-motion"
+import { supabase } from "@/lib/supabaseClient"
+import { 
+  Building2, 
+  Calendar, 
+  Users, 
+  Sparkles, 
+  ArrowRight,
+  Clock,
+  IndianRupee
+} from "lucide-react"
 
-interface Room {
-  id: number
-  name: string
-  category: "Deluxe" | "Executive" | "Suite"
-  status: "free" | "occupied" | "maintenance" | "housekeeping"
-  pricePerDay: number
-  // If occupied, point to guest id
-  guestId?: string | null
+import CalendarPanel from "./components/CalendarPanel"
+import RoomGrid, { Room } from "./components/RoomGrid"
+import BookingPanel from "./components/BookingPanel"
+import CheckInDialog from "./components/CheckInDialog"
+import GuestList from "./components/GuestList"
+import HousekeepingList from "./components/HousekeepingList"
+import MaintenancePanel from "./components/MaintenancePanel"
+
+const HOURLY_LATE_FEE = 200
+
+/* ================= TYPES =================== */
+
+interface RawRoom {
+  id: string
+  room_number: string
+  status: string
+  room_types: {
+    name: string
+    base_price: number
+  } | null
 }
 
-interface Guest {
+interface RawGuest {
   id: string
   name: string
-  address: string
-  idProof: string
-  roomIds: number[] // rooms assigned
+  room_ids: string[]
+  check_in: string
+  booked_days: number
+  base_amount: number
+  status: "checked-in" | "checked-out"
+  check_out?: string
+  extra_hours?: number
+  extra_charge?: number
+  total_charge?: number
+}
+
+export interface Guest {
+  id: string
+  name: string
+  roomIds: string[]
   checkInISO: string
   bookedDays: number
   baseAmount: number
@@ -43,510 +64,420 @@ interface Guest {
   totalCharge?: number
 }
 
-const basePrices = {
-  Deluxe: 2800,
-  Executive: 4500,
-  Suite: 6800,
-}
+/* =========================================== */
 
-const HOURLY_LATE_FEE = 200 // ₹200 per extra hour
-
-// stable id generator
-const genId = (() => {
-  let counter = 0
-  return () => `id_${Date.now()}_${++counter}`
-})()
-
-// helper to format 12-hour time & date
-const formatDateTime12 = (iso: string) => {
-  const d = new Date(iso)
-  return d.toLocaleString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })
-}
-
-export default function Page() {
+export default function BookingsPage() {
   const router = useRouter()
 
-  const [currentDate, setCurrentDate] = useState<Date>(new Date())
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
-
+  const [selectedDate] = useState(new Date())
   const [rooms, setRooms] = useState<Room[]>([])
   const [selectedRooms, setSelectedRooms] = useState<Room[]>([])
   const [bookingOpen, setBookingOpen] = useState(false)
-  const [passportImage, setPassportImage] = useState<File | null>(null)
-  const [housekeepingAlerted, setHousekeepingAlerted] = useState<number[]>([])
-  const [form, setForm] = useState({
-    name: "",
-    address: "",
-    idProof: "",
-    days: 1,
-    manualPrice: "",
-  })
+  const [guests, setGuests] = useState<Guest[]>([])
+  const [days, setDays] = useState(1)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const [guests, setGuests] = useState<Guest[]>([]) // includes checked-in and checked-out records
+  /* ===================================================== */
+  /* ================= FETCH ROOMS ====================== */
+  /* ===================================================== */
 
-  // notification sound
-  const playSound = () => {
-    const audio = new Audio("/sounds/notify.mp3")
-    audio.play().catch(() => {})
-  }
+  const fetchRooms = async () => {
+    const { data, error } = await supabase
+      .from("rooms")
+      .select("id, room_number, status, room_types(name, base_price)")
 
-  // persist and load from localStorage keys
-  const STORAGE_KEYS = {
-    rooms: "rms_rooms_v1",
-    guests: "rms_guests_v1",
-  }
-
-  // initialize current date (keeps live clock)
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentDate(new Date()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  // load saved data or generate initial rooms
-  useEffect(() => {
-    const storedRooms = typeof window !== "undefined" && localStorage.getItem(STORAGE_KEYS.rooms)
-    const storedGuests = typeof window !== "undefined" && localStorage.getItem(STORAGE_KEYS.guests)
-
-    if (storedRooms) {
-      try {
-        setRooms(JSON.parse(storedRooms))
-      } catch {
-        setRooms(generateRooms())
-      }
-    } else {
-      setRooms(generateRooms())
+    if (error || !data) {
+      console.error("Room fetch error:", error)
+      return
     }
 
-    if (storedGuests) {
-      try {
-        setGuests(JSON.parse(storedGuests))
-      } catch {
-        setGuests([])
-      }
-    }
-  }, [])
+    const mappedRooms: Room[] = (data as RawRoom[]).map((r) => ({
+      id: r.id,
+      name: r.room_number,
+      category: r.room_types?.name ?? "Deluxe",
+      status: r.status === "available" ? "free" : r.status,
+      pricePerDay: r.room_types?.base_price ?? 2800,
+      guestId: null,
+    }))
 
-  // persist rooms & guests when they change
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    localStorage.setItem(STORAGE_KEYS.rooms, JSON.stringify(rooms))
-  }, [rooms])
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    localStorage.setItem(STORAGE_KEYS.guests, JSON.stringify(guests))
-  }, [guests])
-
-  // dropzone for passport image
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    accept: { "image/*": [] },
-    onDrop: acceptedFiles => setPassportImage(acceptedFiles[0]),
-  })
-
-  // utility: generate 33 rooms, deterministic categories but random initial statuses
-  function generateRooms(): Room[] {
-    return Array.from({ length: 33 }, (_, i) => {
-      const id = i + 1
-      let category: Room["category"] = "Deluxe"
-      if (id > 11 && id <= 22) category = "Executive"
-      else if (id > 22) category = "Suite"
-
-      // make many free by default
-      const statuses: Room["status"][] = ["free", "occupied", "maintenance", "housekeeping"]
-      const randomStatus = Math.random() < 0.5 ? "free" : statuses[Math.floor(Math.random() * statuses.length)]
-
-      return {
-        id,
-        name: `Room ${id}`,
-        category,
-        status: randomStatus,
-        pricePerDay: basePrices[category],
-        guestId: null,
-      }
-    })
+    setRooms(mappedRooms)
+    setIsLoading(false)
   }
 
-  // compute base price for selected rooms * days or manual override
-  const calculateTotalPrice = () => {
-    if (form.manualPrice) return Number(form.manualPrice)
-    return selectedRooms.reduce((sum, r) => sum + r.pricePerDay, 0) * Math.max(1, form.days)
-  }
+  const handleStatusChange = async (roomId: string, newStatus: Room["status"]) => {
+    try {
+      const { error } = await supabase
+        .from("rooms")
+        .update({ status: newStatus })
+        .eq("id", roomId)
 
-  // room click: housekeeping alert or select/free only
-  const handleRoomClick = (room: Room) => {
-    if (room.status === "housekeeping") {
-      if (housekeepingAlerted.includes(room.id)) {
-        toast("Housekeeping already alerted for this room.")
-        playSound()
+      if (error) {
+        console.error("Error updating room status:", error)
+        alert("Failed to update room status")
         return
       }
-      toast.success(`🧹 Cleaning alert sent for ${room.name}!`)
-      playSound()
-      setHousekeepingAlerted(prev => [...prev, room.id])
+
+      // Remove from selectedRooms if maintenance
+      if (newStatus === "maintenance") {
+        setSelectedRooms(prev => prev.filter(r => r.id !== roomId))
+      }
+
+      fetchRooms()
+    } catch (err) {
+      console.error("Error:", err)
+      alert("Failed to update room status")
+    }
+  }
+
+  /* ===================================================== */
+  /* ================= FETCH GUESTS ===================== */
+  /* ===================================================== */
+
+  const fetchGuests = async () => {
+    const { data, error } = await supabase
+      .from("guests")
+      .select("*")
+      .order("created_at", { ascending: false })
+
+    if (error || !data) {
+      console.error("Guest fetch error:", error)
       return
     }
 
+    const mappedGuests: Guest[] = (data as RawGuest[]).map((g) => ({
+      id: g.id,
+      name: g.name,
+      roomIds: g.room_ids,
+      checkInISO: g.check_in,
+      bookedDays: g.booked_days,
+      baseAmount: g.base_amount,
+      status: g.status,
+      checkOutISO: g.check_out,
+      extraHours: g.extra_hours,
+      extraCharge: g.extra_charge,
+      totalCharge: g.total_charge,
+    }))
+
+    setGuests(mappedGuests)
+  }
+
+  useEffect(() => {
+    fetchRooms()
+    fetchGuests()
+  }, [])
+
+  /* ===================== CALCULATIONS ===================== */
+
+  const calculateTotal = () => {
+    return selectedRooms.reduce((sum, r) => sum + r.pricePerDay, 0) * days
+  }
+
+  const handleRoomClick = (room: Room) => {
     if (room.status !== "free") return
-    setSelectedRooms(prev =>
-      prev.find(r => r.id === room.id) ? prev.filter(r => r.id !== room.id) : [...prev, room]
+
+    setSelectedRooms((prev) =>
+      prev.find((r) => r.id === room.id)
+        ? prev.filter((r) => r.id !== room.id)
+        : [...prev, room]
     )
   }
 
-  // check-in action (create guest, mark rooms occupied)
-  const handleCheckIn = () => {
-    if (!form.name.trim()) {
-      toast.error("Enter guest name")
-      return
-    }
-    if (!selectedRooms.length) {
-      toast.error("Select at least one room")
-      return
-    }
+  const handleConfirmBooking = async (data: any) => {
+    if (selectedRooms.length === 0) return
 
-    const guestId = genId()
-    const checkInISO = new Date().toISOString()
-    const baseAmount = calculateTotalPrice()
+    const total =
+      data.manualPrice !== "" ? Number(data.manualPrice) : calculateTotal()
 
-    const newGuest: Guest = {
-      id: guestId,
-      name: form.name.trim(),
-      address: form.address.trim(),
-      idProof: form.idProof.trim(),
-      roomIds: selectedRooms.map(r => r.id),
-      checkInISO,
-      bookedDays: Math.max(1, Number(form.days)),
-      baseAmount,
+    const { error } = await supabase.from("guests").insert({
+      name: data.name,
+      room_ids: selectedRooms.map((r) => r.id),
+      check_in: new Date().toISOString(),
+      booked_days: data.days,
+      base_amount: total,
       status: "checked-in",
+    })
+
+    if (error) {
+      console.error("Supabase insert error:", error)
+      alert(error.message)
+      return
     }
 
-    // mark rooms occupied with guestId
-    setRooms(prev =>
-      prev.map(r =>
-        selectedRooms.find(s => s.id === r.id)
-          ? { ...r, status: "occupied", guestId }
-          : r
-      )
-    )
+    await supabase
+      .from("rooms")
+      .update({ status: "occupied" })
+      .in("id", selectedRooms.map((r) => r.id))
 
-    setGuests(prev => [newGuest, ...prev])
-    toast.success("Guest checked in ✅")
-    playSound()
-
-    // close modal & clear selection & form (but keep guest record)
-    setBookingOpen(false)
     setSelectedRooms([])
-    setForm({ name: "", address: "", idProof: "", days: 1, manualPrice: "" })
-    setPassportImage(null)
+    setBookingOpen(false)
+
+    fetchRooms()
+    fetchGuests()
   }
 
-  // compute hours elapsed from ISO strings (rounded up to full hours)
-  const hoursSince = (iso: string) => {
+  const hourDiff = (iso: string) => {
     const start = new Date(iso).getTime()
     const now = Date.now()
-    const diffMs = now - start
-    const hours = diffMs / (1000 * 60 * 60)
-    return Math.ceil(hours) // charge per started hour
+    return Math.ceil((now - start) / (1000 * 60 * 60))
   }
 
-  // check-out flow: compute extra hours & charge, allow override
-  const handleCheckOut = (guest: Guest) => {
-    const nowISO = new Date().toISOString()
-    const totalHours = hoursSince(guest.checkInISO)
+  const handleCheckOut = async (guest: Guest) => {
+    const hoursStayed = hourDiff(guest.checkInISO)
     const bookedHours = guest.bookedDays * 24
-    const extraHours = Math.max(0, totalHours - bookedHours)
+
+    const extraHours = Math.max(0, hoursStayed - bookedHours)
     const extraCharge = extraHours * HOURLY_LATE_FEE
-    const base = guest.baseAmount || 0
-    const computedTotal = base + extraCharge
+    const totalCharge = guest.baseAmount + extraCharge
 
-    // ask user for confirmation and show override option
-    const userChoice = window.confirm(
-      `Guest: ${guest.name}\nRooms: ${guest.roomIds.join(", ")}\nBooked days: ${guest.bookedDays}\nHours stayed: ${totalHours}\nExtra hours: ${extraHours}\nExtra charge: ₹${extraCharge}\n\nConfirm checkout and charge ₹${computedTotal}? (Press Cancel to open manual override)`
-    )
+    if (!confirm(`Checkout total: ₹${totalCharge}`)) return
 
-    if (userChoice) {
-      // perform checkout
-      finalizeCheckOut(guest, { checkOutISO: nowISO, extraHours, extraCharge, totalCharge: computedTotal })
-      toast.success("Checked out and billed ✅")
-      playSound()
-      return
-    }
+    await supabase
+      .from("rooms")
+      .update({ status: "housekeeping" })
+      .in("id", guest.roomIds)
 
-    // manual override path
-    const manualInput = prompt(`Enter manual total amount to charge (numeric). Suggested: ${computedTotal}`, String(computedTotal))
-    if (manualInput === null) {
-      toast("Checkout cancelled")
-      return
-    }
-    const manualTotal = Number(manualInput)
-    if (isNaN(manualTotal)) {
-      toast.error("Invalid manual amount")
-      return
-    }
+    await supabase
+      .from("guests")
+      .update({
+        status: "checked-out",
+        check_out: new Date().toISOString(),
+        extra_hours: extraHours,
+        extra_charge: extraCharge,
+        total_charge: totalCharge,
+      })
+      .eq("id", guest.id)
 
-    finalizeCheckOut(guest, { checkOutISO: nowISO, extraHours, extraCharge, totalCharge: manualTotal })
-    toast.success("Checked out with manual override ✅")
-    playSound()
+    fetchRooms()
+    fetchGuests()
   }
 
-  // apply checkout result: update guest record, mark rooms housekeeping
-  const finalizeCheckOut = (guest: Guest, result: { checkOutISO: string; extraHours: number; extraCharge: number; totalCharge: number }) => {
-    // mark rooms housekeeping and remove guestId
-    setRooms(prev =>
-      prev.map(r =>
-        guest.roomIds.includes(r.id) ? { ...r, status: "housekeeping", guestId: null } : r
-      )
-    )
-
-    // update guest record to checked-out and store checkout details
-    setGuests(prev =>
-      prev.map(g => (g.id === guest.id ? { ...g, status: "checked-out", checkOutISO: result.checkOutISO, extraHours: result.extraHours, extraCharge: result.extraCharge, totalCharge: result.totalCharge } : g))
-    )
+  const markRoomCleaned = async (roomId: string) => {
+    await supabase.from("rooms").update({ status: "available" }).eq("id", roomId)
+    fetchRooms()
   }
 
-  // housekeeping: mark room as cleaned (free)
-  const markRoomCleaned = (roomId: number) => {
-    setRooms(prev => prev.map(r => (r.id === roomId ? { ...r, status: "free" } : r)))
-    // remove alert if exists
-    setHousekeepingAlerted(prev => prev.filter(id => id !== roomId))
-    toast.success(`Room ${roomId} marked as cleaned`)
-    playSound()
-  }
+  const occupiedGuests = useMemo(
+    () => guests.filter((g) => g.status === "checked-in"),
+    [guests]
+  )
 
-  // small helpers for UI
-  const occupiedGuests = useMemo(() => guests.filter(g => g.status === "checked-in"), [guests])
-  const pastGuests = useMemo(() => guests.filter(g => g.status === "checked-out"), [guests])
-  const housekeepingRooms = rooms.filter(r => r.status === "housekeeping")
+  // Quick stats for header
+  const availableRooms = rooms.filter(r => r.status === 'free').length
+  const occupiedRooms = rooms.filter(r => r.status === 'occupied').length
+  const totalRooms = rooms.length
 
-  // Limit date selection (no past days)
-  const disabledDays = (day: Date) => {
-    const today = new Date()
-    return day < new Date(today.setHours(0, 0, 0, 0))
-  }
-
-  // room status text mapping & style (monochrome)
-  const statusInfo = {
-    free: { label: "Available", style: "bg-white text-black border border-black hover:bg-gray-100" },
-    housekeeping: { label: "Needs Cleaning", style: "bg-gray-100 text-black border border-dashed border-black hover:bg-gray-200" },
-    occupied: { label: "Occupied", style: "bg-gray-200 text-gray-700 border border-black opacity-70 cursor-not-allowed" },
-    maintenance: { label: "Under Maintenance", style: "bg-gray-300 text-gray-700 border border-black opacity-60 cursor-not-allowed" },
-  } as const
+  /* ===================== UI ===================== */
 
   return (
-    <div className="min-h-screen bg-white text-black p-8 font-sans">
-      <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold border-b border-black pb-3">Resort Room Booking & Check-In</h1>
-        <p className="text-sm mt-2 opacity-80">Current Time: {currentDate.toLocaleString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true })}</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-emerald-50/20 p-4 lg:p-6 space-y-6">
+      
+      {/* Animated Background Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-200/20 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-emerald-200/20 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-200/10 rounded-full blur-3xl"></div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Calendar + Selected rooms summary */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card className="border border-black shadow-none">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Select Date</CardTitle>
-            </CardHeader>
-            <CardContent className="flex justify-center">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={(date) => date && setSelectedDate(date)}
-                disabled={disabledDays}
-                className="rounded-md border border-black"
-                required={false}
-              />
-            </CardContent>
-          </Card>
+      <div className="relative z-10">
+        {/* Enhanced Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6 lg:p-8"
+        >
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl shadow-lg">
+                <Building2 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-br from-slate-900 to-slate-700 bg-clip-text text-transparent">
+                  Resort Bookings
+                </h1>
+                <p className="text-slate-600 mt-1 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Real-time room management dashboard
+                </p>
+              </div>
+            </div>
+            
+            {/* Quick Stats */}
+            <div className="flex gap-4 text-center">
+              <div className="bg-blue-50 rounded-2xl px-4 py-2 border border-blue-200">
+                <div className="text-lg font-bold text-blue-700">{availableRooms}</div>
+                <div className="text-xs text-blue-600">Available</div>
+              </div>
+              <div className="bg-rose-50 rounded-2xl px-4 py-2 border border-rose-200">
+                <div className="text-lg font-bold text-rose-700">{occupiedRooms}</div>
+                <div className="text-xs text-rose-600">Occupied</div>
+              </div>
+              <div className="bg-slate-100 rounded-2xl px-4 py-2 border border-slate-200">
+                <div className="text-lg font-bold text-slate-700">{totalRooms}</div>
+                <div className="text-xs text-slate-600">Total</div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
 
-          <Card className="border border-black shadow-none">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Selected Rooms</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {selectedRooms.length ? (
-                  selectedRooms.map(r => (
-                    <div key={r.id} className="flex justify-between items-center p-2 border border-gray-100 rounded">
-                      <div>
-                        <div className="font-semibold">{r.name}</div>
-                        <div className="text-xs opacity-70">{r.category} • ₹{r.pricePerDay}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm">₹{r.pricePerDay}</div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-xs text-gray-500">No rooms selected</div>
+        {/* Main Grid */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.6 }}
+          className="grid grid-cols-1 xl:grid-cols-4 gap-4 lg:gap-6 mt-6"
+        >
+
+          {/* LEFT SIDEBAR */}
+          <div className="xl:col-span-1 space-y-4 lg:space-y-6">
+            {/* Calendar Panel */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Calendar className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-slate-900">Calendar</h3>
+              </div>
+              <CalendarPanel selectedDate={selectedDate} onChange={() => {}} />
+            </motion.div>
+
+            {/* Booking Panel */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.4 }}
+              className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles className="w-5 h-5 text-amber-600" />
+                <h3 className="font-semibold text-slate-900">Quick Booking</h3>
+              </div>
+              <BookingPanel
+                selectedRooms={selectedRooms}
+                total={calculateTotal()}
+                days={days}
+                setDays={setDays}
+                onBook={() => setBookingOpen(true)}
+                onCheckout={() => router.push("/checkout")}
+              />
+            </motion.div>
+          </div>
+
+          {/* CENTER — ROOM GRID */}
+          <div className="xl:col-span-2">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6 h-full"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl lg:text-2xl font-bold text-slate-900 mb-2">
+                    Room Availability
+                  </h2>
+                  <p className="text-slate-600 text-sm lg:text-base">
+                    {selectedRooms.length > 0 ? (
+                      <span className="flex items-center gap-2">
+                        <span className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full text-sm font-medium">
+                          {selectedRooms.length} room(s) selected
+                        </span>
+                        <span className="flex items-center gap-1 font-semibold">
+                          <IndianRupee className="w-4 h-4" />
+                          {calculateTotal()} total
+                        </span>
+                      </span>
+                    ) : (
+                      "Click on available rooms to select"
+                    )}
+                  </p>
+                </div>
+                
+                {selectedRooms.length > 0 && (
+                  <motion.button
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    onClick={() => setBookingOpen(true)}
+                    className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white px-4 py-2 rounded-2xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-2"
+                  >
+                    Book Now
+                    <ArrowRight className="w-4 h-4" />
+                  </motion.button>
                 )}
               </div>
 
-              <div className="mt-4 text-center">
-                <div className="font-semibold">Total: ₹{calculateTotalPrice().toLocaleString("en-IN")}</div>
-                <div className="text-xs opacity-70">Days: {form.days}</div>
-                <div className="mt-3 flex gap-2 justify-center">
-                  {selectedRooms.length > 0 && (
-                    <Button onClick={() => setBookingOpen(true)} className="border border-black bg-white text-black hover:bg-black hover:text-white">
-                      Check-In Guest
-                    </Button>
-                  )}
-                  <Button variant="outline" onClick={() => { playSound(); router.push("/checkout") }} className="border border-black bg-white text-black hover:bg-black hover:text-white">Checkout Page</Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Center: Room grid */}
-        <div className="lg:col-span-1">
-          <Card className="border border-black shadow-none">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Room Availability</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                {rooms.map(room => (
-                  <div
-                    key={room.id}
-                    onClick={() => handleRoomClick(room)}
-                    className={`${statusInfo[room.status].style} rounded-lg p-2 text-center text-sm transition ${selectedRooms.find(r => r.id === room.id) ? "ring-2 ring-black" : ""}`}
-                  >
-                    <div className="font-semibold">{room.name}</div>
-                    <div className="text-xs opacity-70">{room.category}</div>
-                    <div className="text-xs mt-1 italic">{statusInfo[room.status].label}</div>
-                    {room.status === "occupied" && room.guestId && (
-                      <div className="text-xs mt-1">Guest: {guests.find(g => g.id === room.guestId)?.name ?? "—"}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: Current Guests + Housekeeping */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card className="border border-black shadow-none">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Current Guests</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {occupiedGuests.length ? (
-                <div className="space-y-3">
-                  {occupiedGuests.map(g => {
-                    const hours = hoursSince(g.checkInISO)
-                    return (
-                      <div key={g.id} className="p-2 border border-gray-100 rounded">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="font-semibold">{g.name}</div>
-                            <div className="text-xs opacity-70">Rooms: {g.roomIds.join(", ")}</div>
-                            <div className="text-xs opacity-70">Checked in: {formatDateTime12(g.checkInISO)}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-medium">{hours} hrs</div>
-                            <div className="text-xs opacity-60">Booked: {g.bookedDays} days</div>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex gap-2 justify-end">
-                          <Button variant="outline" onClick={() => handleCheckOut(g)} className="text-sm border border-black bg-white hover:bg-black hover:text-white">Check-Out</Button>
-                        </div>
-                      </div>
-                    )
-                  })}
+              {isLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
                 </div>
               ) : (
-                <div className="text-xs text-gray-500">No current guests</div>
+                <RoomGrid
+                  rooms={rooms}
+                  selectedRooms={selectedRooms}
+                  guests={occupiedGuests.map((g) => ({ id: g.id, name: g.name }))}
+                  onRoomClick={handleRoomClick}
+                  onStatusChange={handleStatusChange}
+                />
               )}
-            </CardContent>
-          </Card>
+            </motion.div>
+          </div>
 
-          <Card className="border border-black shadow-none">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Housekeeping</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {housekeepingRooms.length ? (
-                housekeepingRooms.map(r => (
-                  <div key={r.id} className="flex items-center justify-between p-2 border border-gray-100 rounded mb-2">
-                    <div>
-                      <div className="font-medium">{r.name}</div>
-                      <div className="text-xs opacity-70">{r.category}</div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button onClick={() => markRoomCleaned(r.id)} className="text-sm border border-black bg-white hover:bg-black hover:text-white">Mark Cleaned</Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-xs text-gray-500">No rooms pending cleaning</div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+          {/* RIGHT SIDEBAR */}
+          <div className="xl:col-span-1 space-y-4 lg:space-y-6">
+            {/* Guest List */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Users className="w-5 h-5 text-green-600" />
+                <h3 className="font-semibold text-slate-900">Current Guests</h3>
+              </div>
+              <div className="h-80 lg:h-96 overflow-hidden flex flex-col">
+                <GuestList guests={occupiedGuests} onCheckout={handleCheckOut} />
+              </div>
+            </motion.div>
+
+            {/* Housekeeping List */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.4 }}
+              className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6"
+            >
+              <div className="h-64 lg:h-72 overflow-hidden flex flex-col">
+                <HousekeepingList rooms={rooms} onMarkCleaned={markRoomCleaned} />
+              </div>
+            </motion.div>
+
+            {/* Maintenance Panel */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.5 }}
+              className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-sm border border-slate-200/60 p-6"
+            >
+              <MaintenancePanel
+                rooms={rooms}
+                refreshRooms={fetchRooms}
+              />
+            </motion.div>
+          </div>
+        </motion.div>
       </div>
 
-      {/* Booking / Check-in Dialog */}
-      <Dialog open={bookingOpen} onOpenChange={setBookingOpen}>
-        <DialogContent className="bg-white text-black border border-black rounded-xl">
-          <DialogHeader>
-            <DialogTitle className="font-semibold text-lg">Check-In Guest</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div>
-              <Label>Name</Label>
-              <Input placeholder="Guest name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="border border-black" />
-            </div>
-
-            <div>
-              <Label>Address</Label>
-              <Input placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="border border-black" />
-            </div>
-
-            <div>
-              <Label>ID / Passport</Label>
-              <Input placeholder="Passport or ID number" value={form.idProof} onChange={(e) => setForm({ ...form, idProof: e.target.value })} className="border border-black" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Number of Days</Label>
-                <Input type="number" min={1} value={form.days} onChange={(e) => setForm({ ...form, days: Math.max(1, Number(e.target.value)) })} className="border border-black" />
-              </div>
-              <div>
-                <Label>Manual Price (optional)</Label>
-                <Input type="number" placeholder="Custom total" value={form.manualPrice} onChange={(e) => setForm({ ...form, manualPrice: e.target.value })} className="border border-black" />
-              </div>
-            </div>
-
-            <div className="font-semibold text-center">Calculated Total: ₹{calculateTotalPrice().toLocaleString("en-IN")}</div>
-
-            <div {...getRootProps()} className="border border-dashed border-black p-4 text-center rounded-lg cursor-pointer">
-              <input {...getInputProps()} />
-              {isDragActive ? <p>Drop ID image...</p> : passportImage ? (
-                <div className="flex flex-col items-center">
-                  <Image src={URL.createObjectURL(passportImage)} alt="id" width={150} height={150} className="rounded-md" />
-                  <p className="text-sm mt-2">{passportImage.name}</p>
-                </div>
-              ) : <p>Drag or click to upload ID image (optional)</p>}
-            </div>
-
-            <div className="flex justify-end gap-4">
-              <Button variant="outline" onClick={() => { setBookingOpen(false); playSound() }} className="border border-black bg-white text-black hover:bg-black hover:text-white">Cancel</Button>
-              <Button onClick={handleCheckIn} className="border border-black bg-black text-white hover:bg-white hover:text-black">Confirm Check-In</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* CHECK-IN DIALOG */}
+      <CheckInDialog
+        open={bookingOpen}
+        onClose={() => setBookingOpen(false)}
+        onConfirm={handleConfirmBooking}
+        calculatedTotal={calculateTotal()}
+      />
     </div>
   )
 }

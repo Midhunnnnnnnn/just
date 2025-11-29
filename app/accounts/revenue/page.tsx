@@ -1,117 +1,313 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Calendar, Download, Filter, IndianRupee } from "lucide-react";
 
-export default function RevenuePage() {
-  const [search, setSearch] = useState("")
+interface AccountRow {
+  id: string;
+  base_amount: number;
+  extra_hours: number;
+  extra_charge: number;
+  total_amount: number;
+  payment_method: string;
+  created_at: string;
+  guests: { name: string } | null;
+  rooms: { room_number: string } | null;
+}
 
-  // Dummy data for now (will connect to DB later)
-  const revenueData = [
-    { id: "BK101", guest: "Rahul", room: "101", amount: 5200, date: "2025-05-10" },
-    { id: "BK102", guest: "Anita", room: "203", amount: 7800, date: "2025-05-12" },
-    { id: "BK103", guest: "John", room: "105", amount: 4300, date: "2025-05-13" },
-    { id: "BK104", guest: "Neha", room: "402", amount: 6600, date: "2025-05-14" },
-  ]
+export default function RevenueReportPage() {
+  const [data, setData] = useState<AccountRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterDate, setFilterDate] = useState("");
 
-  // Filter logic
-  const filteredData = revenueData.filter((item) =>
-    item.guest.toLowerCase().includes(search.toLowerCase()) ||
-    item.id.toLowerCase().includes(search.toLowerCase())
-  )
+  const fetchRevenue = async () => {
+    setLoading(true);
 
-  const totalRevenue = filteredData.reduce((sum, item) => sum + item.amount, 0)
+    let query = supabase
+      .from("accounts")
+      .select("*, guests(name), rooms(room_number)")
+      .order("created_at", { ascending: false });
+
+    if (filterDate) {
+      query = query
+        .gte("created_at", `${filterDate}T00:00:00`)
+        .lte("created_at", `${filterDate}T23:59:59`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Error loading revenue:", error);
+      setData([]);
+    } else {
+      setData(data as AccountRow[]);
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchRevenue();
+  }, [filterDate]);
+
+  const totalRevenue = data.reduce(
+    (sum, row) => sum + (row.total_amount || 0),
+    0
+  );
+
+  const todayRevenue = data.filter(row => 
+    new Date(row.created_at).toDateString() === new Date().toDateString()
+  ).reduce((sum, row) => sum + (row.total_amount || 0), 0);
+
+  const totalTransactions = data.length;
 
   return (
-    <div className="p-6 space-y-6">
-
-      <div className="flex flex-col md:flex-row justify-between gap-4 items-center">
-        <h1 className="text-3xl font-bold">Revenue Report</h1>
-        <Input
-          className="md:w-64"
-          placeholder="Search by name or booking id..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 lg:p-6 space-y-6">
+      
+      {/* HEADER SECTION */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Revenue Report</h1>
+            <p className="text-slate-600 mt-2">
+              Comprehensive overview of all booking transactions and earnings
+            </p>
+          </div>
+          <Button 
+            onClick={() => window.print()}
+            className="bg-slate-900 hover:bg-slate-800 text-white"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export Report
+          </Button>
+        </div>
       </div>
 
       {/* SUMMARY CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total Bookings</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">
-            {filteredData.length}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-800">Total Revenue</p>
+                <p className="text-3xl font-bold text-green-900 mt-2">
+                  ₹{totalRevenue.toLocaleString("en-IN")}
+                </p>
+              </div>
+              <div className="p-3 bg-green-200 rounded-full">
+                <IndianRupee className="w-6 h-6 text-green-700" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Total Revenue</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold text-green-600">
-            ₹{totalRevenue}
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-800">Today's Revenue</p>
+                <p className="text-3xl font-bold text-blue-900 mt-2">
+                  ₹{todayRevenue.toLocaleString("en-IN")}
+                </p>
+              </div>
+              <div className="p-3 bg-blue-200 rounded-full">
+                <Calendar className="w-6 h-6 text-blue-700" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Average Booking</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">
-            ₹{filteredData.length ? Math.round(totalRevenue / filteredData.length) : 0}
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-purple-800">Total Transactions</p>
+                <p className="text-3xl font-bold text-purple-900 mt-2">
+                  {totalTransactions}
+                </p>
+              </div>
+              <div className="p-3 bg-purple-200 rounded-full">
+                <Filter className="w-6 h-6 text-purple-700" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* TABLE */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Revenue Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Booking ID</TableHead>
-                <TableHead>Guest Name</TableHead>
-                <TableHead>Room No</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
+      {/* FILTERS & TABLE SECTION */}
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        {/* FILTER SIDEBAR */}
+        <Card className="xl:col-span-1">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5" />
+              Filters
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-2 block">
+                Filter by Date
+              </label>
+              <Input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <Button 
+              variant="outline" 
+              onClick={() => setFilterDate("")}
+              className="w-full"
+            >
+              Clear Filters
+            </Button>
+            
+            {/* Quick Stats */}
+            <div className="pt-4 border-t border-slate-200">
+              <h4 className="font-semibold text-slate-900 mb-3">Quick Stats</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Avg. Transaction</span>
+                  <span className="font-semibold">
+                    ₹{totalTransactions > 0 ? (totalRevenue / totalTransactions).toFixed(0) : 0}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Extra Charges</span>
+                  <span className="font-semibold text-amber-600">
+                    ₹{data.reduce((sum, row) => sum + (row.extra_charge || 0), 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-            <TableBody>
-              {filteredData.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.id}</TableCell>
-                  <TableCell>{item.guest}</TableCell>
-                  <TableCell>{item.room}</TableCell>
-                  <TableCell>{item.date}</TableCell>
-                  <TableCell className="text-right font-medium">₹{item.amount}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {filteredData.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center mt-4">
-              No data found.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button onClick={() => window.print()}>
-          Print / Save PDF
-        </Button>
+        {/* MAIN TABLE */}
+        <Card className="xl:col-span-3">
+          <CardHeader className="pb-4">
+            <CardTitle>Revenue Transactions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900 mx-auto"></div>
+                <p className="text-slate-600 mt-3">Loading revenue data...</p>
+              </div>
+            ) : data.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <IndianRupee className="w-8 h-8 text-slate-400" />
+                </div>
+                <h3 className="font-semibold text-slate-900 mb-2">No transactions found</h3>
+                <p className="text-slate-600 mb-4">No revenue records match your current filters</p>
+                {filterDate && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setFilterDate("")}
+                  >
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead className="font-semibold text-slate-900">Date & Time</TableHead>
+                        <TableHead className="font-semibold text-slate-900">Guest</TableHead>
+                        <TableHead className="font-semibold text-slate-900">Room</TableHead>
+                        <TableHead className="font-semibold text-slate-900 text-right">Base Amount</TableHead>
+                        <TableHead className="font-semibold text-slate-900 text-right">Extra Charges</TableHead>
+                        <TableHead className="font-semibold text-slate-900 text-right">Total</TableHead>
+                        <TableHead className="font-semibold text-slate-900">Payment</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.map((row) => (
+                        <TableRow key={row.id} className="hover:bg-slate-50 transition-colors">
+                          <TableCell className="font-medium">
+                            <div className="text-sm text-slate-900">
+                              {new Date(row.created_at).toLocaleDateString("en-IN")}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {new Date(row.created_at).toLocaleTimeString("en-IN", {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-semibold text-slate-900">
+                            {row.guests?.name || "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                              {row.rooms?.room_number || "—"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-slate-900">
+                            ₹{row.base_amount?.toLocaleString("en-IN")}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.extra_charge > 0 ? (
+                              <div>
+                                <div className="font-medium text-amber-700">
+                                  ₹{row.extra_charge?.toLocaleString("en-IN")}
+                                </div>
+                                <div className="text-xs text-amber-600">
+                                  ({row.extra_hours} hrs)
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-green-700">
+                            ₹{row.total_amount?.toLocaleString("en-IN")}
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              className={
+                                row.payment_method === 'cash' 
+                                  ? "bg-green-100 text-green-800 border-green-200"
+                                  : "bg-blue-100 text-blue-800 border-blue-200"
+                              }
+                            >
+                              {row.payment_method || "cash"}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
-  )
+  );
 }
- 
